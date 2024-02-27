@@ -1,0 +1,9 @@
+table {
+    width: 100%;
+    min-width: 750px;
+    border-collapse: collapse;
+  }
+  table, th, td {
+    border: 1px solid black;
+  }
+  

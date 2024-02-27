@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "LinkedIn V2",
+  "version": "1.0",
+  "description": "Fetch specific data from a web page",
+  "permissions": ["activeTab", "tabs", "storage", "scripting", "downloads"],
+  "host_permissions": [
+    "https://www.linkedin.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [{
+    "matches": ["https://www.linkedin.com/*"],
+    "js": ["contentScript.js","xlsx.full.min.js" ]
+  }]
+  
+}

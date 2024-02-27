@@ -1,0 +1,216 @@
+manifest.json 
+
+{
+  "manifest_version": 3,
+  "name": "LinkedIn V2",
+  "version": "1.0",
+  "description": "Fetch specific data from a web page",
+  "permissions": ["activeTab", "tabs", "storage", "scripting"],
+  "host_permissions": [
+    "https://www.linkedin.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [{
+    "matches": ["https://www.linkedin.com/*"],
+    "js": ["contentScript.js"]
+  }]
+  
+}
+  
+background.js
+
+// Listen for when a tab is updated
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && /^https:\/\/www\.linkedin\.com/.test(tab.url)) {
+    // Execute your scrapeData function on the updated tab if the URL matches LinkedIn
+    chrome.scripting.executeScript({
+      target: {tabId: tabId},
+      files: ['contentScript.js']
+    });
+  }
+});
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'saveData') {
+    // Save the scraped data when received from the content script
+    chrome.storage.local.set({ scrapedData: request.data }, () => {
+      sendResponse({ success: true });
+    });
+    return true;  // Will respond asynchronously
+  }
+});
+
+
+
+contentScript.js 
+
+function scrollSlowly(callback) {
+  const container = document.getElementById('search-results-container');
+  if (!container) {
+      console.error('Scrollable container not found.');
+      return;
+  }
+
+  const scrollInterval = setInterval(() => {
+      const beforeScrollTop = container.scrollTop;
+      container.scrollTop += 200;  // Scroll by 50 pixels every 500ms
+
+      // If we haven't scrolled, probably we've reached the end.
+      if (container.scrollTop === beforeScrollTop) {
+          clearInterval(scrollInterval);
+          callback();
+      }
+  }, 200);
+}
+
+function safeTextContent(element) {
+  return element ? element.textContent.trim() : "";
+}
+
+function scrapeAfterScroll() {
+  scrollSlowly(() => {
+      scrapeData();
+  });
+}
+
+function scrapeData() {
+  const liElements = Array.from(document.querySelectorAll('ol.artdeco-list > li.artdeco-list__item'));
+
+  const data = liElements.map(li => {
+      const nameElem = li.querySelector('span[data-anonymize="person-name"]');
+      const titleElem = li.querySelector('span[data-anonymize="title"]');
+      const companyElem = li.querySelector('a[data-anonymize="company-name"]');
+      const companyElem2 = li.querySelector('div.artdeco-entity-lockup__subtitle');
+
+      let name = safeTextContent(nameElem);
+      const title = safeTextContent(titleElem);
+      let company = safeTextContent(companyElem);
+
+      // If companyElem is empty, use the innerText from companyElem2
+      if (!company && companyElem2) {
+          const allText = companyElem2.innerText;
+          const spanText = companyElem2.querySelector('span') ? companyElem2.querySelector('span').innerText : '';
+          const buttonText = companyElem2.querySelector('button') ? companyElem2.querySelector('button').innerText : '';
+          company = allText.replace(spanText, '').replace(buttonText, '').trim();
+      }
+
+      // If nameElem is empty, set name to company and clear title & company
+      if (!name) {
+          name = company;
+          company = '';
+      }
+
+      return {
+          name: name,
+          title: title,
+          company: company
+      };
+  });
+
+  // Once data is scraped, send it to the background script for storage
+  chrome.runtime.sendMessage({ action: 'saveData', data: data });
+}
+
+
+
+function isScrolledToBottom(el) {
+  return el.scrollHeight - el.scrollTop === el.clientHeight;
+}
+
+function scrollLinkedInPage() {
+  const container = document.querySelector('#search-results-container');
+
+  if (!container) return;
+
+  // If scrolled to the bottom, scrape data and scroll to the top
+  if (isScrolledToBottom(container)) {
+      setTimeout(() => {
+          scrapeData();
+          container.scrollTop = 0;  // scroll back to top
+      }, 1000);  // wait for 5 seconds before scraping and scrolling back to top
+  } else {
+      // If not at the bottom, continue scrolling
+      container.scrollTop += 100;
+      setTimeout(scrollLinkedInPage, 1000);
+  }
+}
+
+// Start the scroll process
+scrollLinkedInPage();
+
+scrapeData();
+
+// Start the scrolling when the script loads
+scrapeAfterScroll();
+
+// Once data is scraped, send it to the background script for storage
+
+
+
+
+  
+  popup.js 
+
+  function fetchData() {
+    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+      let currentTab = tabs[0]; 
+      chrome.scripting.executeScript({
+        target: {tabId: currentTab.id},
+        files: ['contentScript.js']
+      }, (results) => {
+        if (results && results.length && Array.isArray(results[0].result)) {
+          const data = results[0].result;
+          displayData(data);
+        }
+      });
+    });
+  }
+  
+  // popup.js
+  
+  // Fetch the saved data when the popup is opened and display it
+  function displayStoredData() {
+    chrome.storage.local.get('scrapedData', function(data) {
+        if (data.scrapedData) {
+            displayData(data.scrapedData);
+        }
+    });
+  }
+  
+  function displayData(data) {
+    const table = document.getElementById('dataTable');
+    table.innerHTML = ""; // Clear existing data
+    data.forEach(item => {
+        const row = table.insertRow();
+        row.insertCell(0).textContent = item.name;
+        row.insertCell(1).textContent = item.title;
+        row.insertCell(2).textContent = item.company;
+    });
+  }
+  
+  // Fetch the stored data immediately when the popup is opened
+  displayStoredData();
+  
+  document.getElementById('copyButton').addEventListener('click', copyData);
+  
+  function copyData() {
+    let content = '';
+    const dataRows = document.querySelectorAll("#dataTable tr");
+    dataRows.forEach(row => {
+        content += Array.from(row.children).map(td => td.textContent).join('\t') + '\n';
+    });
+    navigator.clipboard.writeText(content);
+  }
+  
+  document.getElementById('fetchButton').addEventListener('click', fetchData);
+  
+  
+  
+
+
+
